@@ -25,12 +25,13 @@ export class PresentationClock {
     // otherwise cause 0-tick / 2-tick oscillation and visible micro-stutter.
     // Lock cleanly 1:1 to 60Hz vsync while preserving free accumulation for 120Hz+ or drops.
     if (dt >= 0.0145 && dt <= 0.0190) {
-      if (this.near60Count < 4) this.near60Count++;
-      if (this.near60Count >= 2) {
+      if (this.near60Count < 16) this.near60Count++;
+      if (this.near60Count >= 8) {
         if (this.remainder === 0) return 1;
-        const catchup = Math.max(1, Math.round((this.remainder + dt) / PresentationClock.step));
-        this.remainder = 0;
-        return catchup;
+        if (Math.abs(this.remainder + dt - PresentationClock.step) < 0.004) {
+          this.remainder = 0;
+          return 1;
+        }
       }
     } else {
       this.near60Count = 0;
@@ -41,7 +42,7 @@ export class PresentationClock {
     return ticks;
   }
   blend() {
-    if (this.near60Count >= 2 && this.remainder === 0) return 1;
+    if (this.near60Count >= 8 && this.remainder === 0) return 1;
     const b = this.remainder / PresentationClock.step;
     return b < 0 ? 0 : b > 1 ? 1 : b;
   }
