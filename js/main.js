@@ -55,7 +55,8 @@ async function boot() {
   audio.preload();
 
   const atlasImg = await loadImage('assets/atlas.png');
-  const renderer = new GameRenderer(canvas, atlasImg);
+  const force2d = new URLSearchParams(location.search).get('renderer') === '2d';
+  const renderer = new GameRenderer(canvas, atlasImg, force2d);
 
   const game = new OriginalGame();
   game.seed((Date.now() % 32000) || 1);
@@ -179,7 +180,7 @@ async function boot() {
             <li><b>触屏</b>：任意位置点击振翅；双指双击切换 FPS / P99</li>
             <li><b>鼠标 / 触摸板</b>：左键点击任意位置振翅</li>
           </ul>
-          <p class="modal-note">原版美术、音效与角色版权归 .GEARS / dotGEARS 所有。</p>
+          <p class="modal-note">当前版本：v8 · 渲染后端：${renderer.mode.toUpperCase()} · 原版美术、音效与角色版权归 .GEARS / dotGEARS 所有。</p>
         `);
       }
     }
@@ -265,7 +266,9 @@ async function boot() {
 }
 
 if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
-  navigator.serviceWorker.register('./sw.js').catch(() => {});
+  navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).then(reg => {
+    reg.update().catch(() => {});
+  }).catch(() => {});
 }
 
 boot().catch(err => {

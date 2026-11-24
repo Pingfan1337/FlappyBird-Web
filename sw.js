@@ -1,4 +1,4 @@
-const CACHE = 'flappy12-web-v7';
+const CACHE = 'flappy12-web-v8';
 const ASSETS = [
   './',
   './index.html',
@@ -34,7 +34,31 @@ self.addEventListener('activate', e => {
 
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
+  const url = new URL(e.request.url);
+  if (url.origin !== location.origin) return;
+
+  // Binary assets are immutable: cache-first for instant load.
+  if (url.pathname.includes('/assets/')) {
+    e.respondWith(
+      caches.match(e.request).then(hit => hit || fetch(e.request).then(res => {
+        if (res.ok) {
+          const copy = res.clone();
+          caches.open(CACHE).then(c => c.put(e.request, copy));
+        }
+        return res;
+      }))
+    );
+    return;
+  }
+
+  // HTML & JS modules: network-first (bypassing 10-minute CDN cache) with offline fallback.
   e.respondWith(
-    caches.match(e.request).then(hit => hit || fetch(e.request))
+    fetch(e.request, { cache: 'no-cache' }).then(res => {
+      if (res.ok) {
+        const copy = res.clone();
+        caches.open(CACHE).then(c => c.put(e.request, copy));
+      }
+      return res;
+    }).catch(() => caches.match(e.request))
   );
 });

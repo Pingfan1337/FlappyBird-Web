@@ -46,7 +46,7 @@ void main() {
 }`;
 
 export class GameRenderer {
-  constructor(canvas, atlasImage) {
+  constructor(canvas, atlasImage, force2d = false) {
     this.canvas = canvas;
     this.atlasImage = atlasImage;
     this.mode = 'none';
@@ -55,7 +55,7 @@ export class GameRenderer {
     this.widthPx = 0;
     this.heightPx = 0;
 
-    if (!this._initWebGL2()) {
+    if (force2d || !this._initWebGL2()) {
       this._initCanvas2D();
     }
   }
@@ -64,7 +64,9 @@ export class GameRenderer {
     let gl = null;
     try {
       gl = this.canvas.getContext('webgl2', {
-        alpha: false,
+        // alpha: true (with opaque clearColor & sky) maps 1:1 to Metal BGRA8Unorm IOSurface
+        // on iOS Safari, avoiding ANGLE's extra alpha:false pixel-format conversion blit.
+        alpha: true,
         antialias: false,
         depth: false,
         stencil: false,
@@ -142,7 +144,7 @@ export class GameRenderer {
   }
 
   _initCanvas2D() {
-    this.ctx2d = this.canvas.getContext('2d', { alpha: false });
+    this.ctx2d = this.canvas.getContext('2d', { alpha: true });
     this.mode = 'canvas2d';
   }
 

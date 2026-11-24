@@ -68,6 +68,13 @@ export class PresentationClock {
     for (let i = 0; i < n; i++) {
       if (this.sorted[i] > baseMin * 1.45) { singleEnd = i; break; }
     }
+    // Only engage VSync PLL when >=75% of recent frames share the same cadence.
+    // Mixed ProMotion VRR (e.g. 80Hz <-> 120Hz) smoothly falls back to continuous dt.
+    if (singleEnd < Math.ceil(n * 0.75)) {
+      this.period = 0;
+      this.phaseError = 0;
+      return 0;
+    }
     const raw = this.sorted[Math.floor((Math.max(1, singleEnd) - 1) * 0.5)];
     let best = raw, bestDiff = 0.0015;
     for (let i = 0; i < STD_RATES.length; i++) {
