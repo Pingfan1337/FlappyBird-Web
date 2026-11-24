@@ -15,7 +15,9 @@ function storeGet(key, fallback) {
   try { const v = localStorage.getItem(key); return v === null ? fallback : v; } catch { return fallback; }
 }
 function storeSet(key, val) {
-  try { localStorage.setItem(key, String(val)); } catch {}
+  setTimeout(() => {
+    try { localStorage.setItem(key, String(val)); } catch {}
+  }, 0);
 }
 
 function loadImage(src) {
@@ -55,8 +57,8 @@ async function boot() {
   audio.preload();
 
   const atlasImg = await loadImage('assets/atlas.png');
-  const force2d = new URLSearchParams(location.search).get('renderer') === '2d';
-  const renderer = new GameRenderer(canvas, atlasImg, force2d);
+  const preferredRenderer = new URLSearchParams(location.search).get('renderer') || 'auto';
+  const renderer = await GameRenderer.create(canvas, atlasImg, preferredRenderer);
 
   const game = new OriginalGame();
   game.seed((Date.now() % 32000) || 1);
@@ -180,7 +182,7 @@ async function boot() {
             <li><b>触屏</b>：任意位置点击振翅；双指双击切换 FPS / P99</li>
             <li><b>鼠标 / 触摸板</b>：左键点击任意位置振翅</li>
           </ul>
-          <p class="modal-note">当前版本：v8 · 渲染后端：${renderer.mode.toUpperCase()} · 原版美术、音效与角色版权归 .GEARS / dotGEARS 所有。</p>
+          <p class="modal-note">当前版本：v9 · 渲染后端：${renderer.mode.toUpperCase()} · 原版美术、音效与角色版权归 .GEARS / dotGEARS 所有。</p>
         `);
       }
     }
@@ -226,6 +228,7 @@ async function boot() {
   syncHud();
 
   function frame(nowMs) {
+    requestAnimationFrame(frame);
     const nowSec = nowMs * 0.001;
     input.pollGamepad();
 
@@ -245,7 +248,7 @@ async function boot() {
       }
     }
 
-    composeFrame(game, paused ? 1 : clock.blend(), layout, quads, true);
+    composeFrame(game, paused ? 0 : clock.blend(), layout, quads, true);
     renderer.render(quads, layout);
 
     if (showFps) {
@@ -258,8 +261,6 @@ async function boot() {
         statsStart = nowSec;
       }
     }
-
-    requestAnimationFrame(frame);
   }
 
   requestAnimationFrame(frame);

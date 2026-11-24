@@ -57,7 +57,7 @@ for (const hz of [60, 120, 144, 240]) {
     const ticks = qClock.advance(t);
     if (i >= 12) {
       assert.equal(ticks, 1, `Expected 1 tick under 60Hz quantized rAF at frame ${i}`);
-      assert.equal(qClock.blend(), 1, `Expected blend=1 under 60Hz lock at frame ${i}`);
+      assert.equal(qClock.blend(), 0, `Expected continuous blend=0 under 60Hz lock at frame ${i}`);
     }
   }
 }

@@ -110,9 +110,6 @@ export class PresentationClock {
     return ticks;
   }
   blend() {
-    if (this.period > 0 && Math.abs(this.period - PresentationClock.step) < 1e-4 && this.remainder < 1e-4) {
-      return 1;
-    }
     const b = this.remainder / PresentationClock.step;
     return b < 0 ? 0 : b > 1 ? 1 : b;
   }
