@@ -67,6 +67,8 @@ async function boot() {
   let layout = new ViewLayout();
   let statsStart = 0;
 
+  let input = null;
+
   function updateLayout() {
     const rect = canvas.getBoundingClientRect();
     const dpr = Math.min(window.devicePixelRatio || 1, 3);
@@ -76,6 +78,7 @@ async function boot() {
     layout = ViewLayout.make(rect.width, rect.height, safeTop, safeBottom);
     game.bird.flapCeiling = layout.flightCeiling();
     renderer.resize(rect.width * dpr, rect.height * dpr);
+    input?.setCanvasOrigin(rect.left, rect.top);
   }
 
   updateLayout();
@@ -180,7 +183,7 @@ async function boot() {
     }
   }
 
-  const input = new InputController(canvas, game, () => layout, {
+  input = new InputController(canvas, game, () => layout, {
     unlockAudio: () => audio.activate(),
     isPaused: () => paused,
     togglePause,
@@ -195,6 +198,7 @@ async function boot() {
       }
     },
   });
+  { const r = canvas.getBoundingClientRect(); input.setCanvasOrigin(r.left, r.top); }
 
   btnPause.addEventListener('click', e => { e.stopPropagation(); btnPause.blur(); togglePause(); });
   btnMute.addEventListener('click', e => { e.stopPropagation(); btnMute.blur(); audio.activate(); toggleMute(); });

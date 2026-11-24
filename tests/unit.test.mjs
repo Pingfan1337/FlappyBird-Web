@@ -62,6 +62,23 @@ for (const hz of [60, 120, 144, 240]) {
   }
 }
 
+// 2c. Jittery 120Hz rAF (7ms..10ms callbacks) PLL locks cleanly to exact 1/120s steps
+{
+  const hClock = new PresentationClock();
+  let t = 10;
+  hClock.advance(t);
+  const jitter120 = [0.008, 0.009, 0.007, 0.010, 0.007, 0.009];
+  for (let i = 0; i < 60; i++) {
+    t += jitter120[i % jitter120.length];
+    const ticks = hClock.advance(t);
+    if (i >= 12) {
+      const b = hClock.blend();
+      assert.ok(ticks === 0 || ticks === 1, `120Hz ticks should be 0 or 1, got ${ticks}`);
+      assert.ok(Math.abs(b - 0.5) < 1e-3 || b < 1e-3, `120Hz blend should lock to 0.0 or 0.5, got ${b}`);
+    }
+  }
+}
+
 // 3. FramePacingStats P99 calculation
 const stats = new FramePacingStats();
 for (let i = 1; i <= 100; i++) stats.presented(i * (1 / 120)); // 99 intervals at 8.33ms

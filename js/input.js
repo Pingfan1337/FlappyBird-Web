@@ -14,6 +14,10 @@ export class InputController {
     this.game = game;
     this.getLayout = getLayout;
     this.actions = actions; // { unlockAudio, isPaused, togglePause, toggleMute, toggleFps, isModalOpen, closeModal, onFirstInteract }
+    this.rectLeft = 0;
+    this.rectTop = 0;
+    this._lx = 0;
+    this._ly = 0;
 
     this.activePointerId = null;
     this.pointers = new Map();
@@ -27,12 +31,15 @@ export class InputController {
     this._bindEvents();
   }
 
-  _toLayout(clientX, clientY) {
-    const rect = this.canvas.getBoundingClientRect();
+  setCanvasOrigin(left, top) {
+    this.rectLeft = left;
+    this.rectTop = top;
+  }
+
+  _updateCoords(clientX, clientY) {
     const layout = this.getLayout();
-    const x = clientX - rect.left;
-    const y = clientY - rect.top;
-    return [layout.inputX(x), layout.inputY(y)];
+    this._lx = layout.inputX(clientX - this.rectLeft);
+    this._ly = layout.inputY(clientY - this.rectTop);
   }
 
   _canUseVirtualPlayButton() {
@@ -84,11 +91,11 @@ export class InputController {
 
       if (this.activePointerId !== null && this.pointers.size > 1) return;
 
-      const [lx, ly] = this._toLayout(e.clientX, e.clientY);
+      this._updateCoords(e.clientX, e.clientY);
       this.activePointerId = e.pointerId;
       try { c.setPointerCapture(e.pointerId); } catch {}
-      g.touchX = lx;
-      g.touchY = ly;
+      g.touchX = this._lx;
+      g.touchY = this._ly;
       g.touching = true;
       g.touchLatch = true;
       g.touchBegin();
@@ -101,13 +108,13 @@ export class InputController {
           this.twoFingerPending = false;
         }
       }
-      const [lx, ly] = this._toLayout(e.clientX, e.clientY);
       if (e.pointerId === this.activePointerId) {
-        g.touchX = lx;
-        g.touchY = ly;
-      }
-      if (e.pointerType === 'mouse') {
-        this._updateHoverCursor(lx, ly);
+        this._updateCoords(e.clientX, e.clientY);
+        g.touchX = this._lx;
+        g.touchY = this._ly;
+      } else if (e.pointerType === 'mouse') {
+        this._updateCoords(e.clientX, e.clientY);
+        this._updateHoverCursor(this._lx, this._ly);
       }
     });
 

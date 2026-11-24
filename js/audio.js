@@ -32,6 +32,8 @@ export class GameAudio {
     this.unlocked = false;
     this.htmlUnlocked = false;
     this.preferHtml = IS_WECHAT;
+    this._sessionType = '';
+    this.pointGain = null;
 
     if (IS_WECHAT && typeof document !== 'undefined') {
       document.addEventListener('WeixinJSBridgeReady', () => {
@@ -81,6 +83,8 @@ export class GameAudio {
   }
 
   _setAudioSession(type) {
+    if (this._sessionType === type) return;
+    this._sessionType = type;
     try {
       if ('audioSession' in navigator && navigator.audioSession) {
         navigator.audioSession.type = type;
@@ -104,6 +108,9 @@ export class GameAudio {
     this.master = this.ctx.createGain();
     this.master.gain.value = this.muted ? 0 : 1;
     this.master.connect(this.ctx.destination);
+    this.pointGain = this.ctx.createGain();
+    this.pointGain.gain.value = 0.2;
+    this.pointGain.connect(this.master);
     return this.ctx;
   }
 
@@ -174,6 +181,9 @@ export class GameAudio {
   }
 
   activate() {
+    if (this.unlocked && this.htmlUnlocked && this.ctx && this.ctx.state === 'running' && this.buffers.size >= 5) {
+      return;
+    }
     const ctx = this._ensureContext();
     this._setAudioSession(this.muted ? 'ambient' : 'playback');
     this._unlockInGesture(ctx);
@@ -259,14 +269,7 @@ export class GameAudio {
       }
       const src = this.ctx.createBufferSource();
       src.buffer = buf;
-      if (event === 9) {
-        const g = this.ctx.createGain();
-        g.gain.value = 0.2;
-        src.connect(g);
-        g.connect(this.master);
-      } else {
-        src.connect(this.master);
-      }
+      src.connect(event === 9 ? this.pointGain : this.master);
       this.activeSources[channel] = src;
       src.onended = () => {
         if (this.activeSources[channel] === src) this.activeSources[channel] = null;

@@ -193,7 +193,7 @@ export class GameRenderer {
       this.frameIndex = (slot + 1) % 3;
       gl.bindVertexArray(this.vaos[slot]);
       gl.bindBuffer(gl.ARRAY_BUFFER, this.vbos[slot]);
-      gl.bufferSubData(gl.ARRAY_BUFFER, 0, data.subarray(0, n * FLOATS_PER_QUAD));
+      gl.bufferSubData(gl.ARRAY_BUFFER, 0, data, 0, n * FLOATS_PER_QUAD);
       gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, n);
       return;
     }
