@@ -44,25 +44,25 @@
     .hud-btn {
       width: 34px; height: 34px; border-radius: 10px;
       border: 1px solid rgba(255, 255, 255, 0.22);
-      background: rgba(15, 23, 42, 0.42);
-      backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+      background: rgba(15, 23, 42, 0.54);
       color: #fff; display: grid; place-items: center;
       cursor: pointer; padding: 0; transition: transform 0.08s ease, background 0.15s ease;
     }
-    .hud-btn:hover { background: rgba(15, 23, 42, 0.65); }
+    .hud-btn:hover { background: rgba(15, 23, 42, 0.72); }
     .hud-btn:active { transform: scale(0.92); }
     .hud-btn[hidden] { display: none; }
     .hud-btn svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
     #btn-mute[data-muted="1"] .icon-sound-on,
     #btn-mute[data-muted="0"] .icon-sound-off { display: none; }
-    #btn-fps[data-active="1"] { border-color: rgba(255, 255, 255, 0.48); background: rgba(15, 23, 42, 0.65); }
+    #btn-fps[data-active="1"] { border-color: rgba(255, 255, 255, 0.48); background: rgba(15, 23, 42, 0.72); }
 
     #fps-badge {
       pointer-events: auto; cursor: pointer;
+      contain: layout style;
       font: 500 11px/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
       font-variant-numeric: tabular-nums;
       color: #fff; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.75);
-      background: rgba(15, 23, 42, 0.34);
+      background: rgba(15, 23, 42, 0.44);
       padding: 5px 8px; border-radius: 8px;
       border: 1px solid rgba(255, 255, 255, 0.16);
     }

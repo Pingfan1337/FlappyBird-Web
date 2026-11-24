@@ -22,6 +22,7 @@ export class InputController {
     this.twoFingerPending = false;
     this.activeKey = null;
     this.prevGamepadDown = false;
+    this.hasGamepad = false;
 
     this._bindEvents();
   }
@@ -201,10 +202,16 @@ export class InputController {
       g.virtualHeld = false;
       this.prevGamepadDown = false;
     });
+
+    window.addEventListener('gamepadconnected', () => { this.hasGamepad = true; });
+    window.addEventListener('gamepaddisconnected', () => {
+      const pads = navigator.getGamepads?.() || [];
+      this.hasGamepad = Array.from(pads).some(Boolean);
+    });
   }
 
   pollGamepad() {
-    if (!navigator.getGamepads) return;
+    if (!this.hasGamepad || !navigator.getGamepads) return;
     const pads = navigator.getGamepads();
     let down = false;
     for (let i = 0; i < pads.length; i++) {

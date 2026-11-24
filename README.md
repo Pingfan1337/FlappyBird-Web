@@ -297,7 +297,7 @@ IOS_SRC_DIR=../FlappyBird-arm64-Metal-iOS27 node tests/trace.test.mjs
 - **Game Center 排行榜**：原版 iOS Game Center 排行榜属于原开发者账号，网页版无法接入；点击排行榜按钮会弹出**本地战绩**卡片，展示基于 `localStorage` 的历史最高分、总局数、最高奖牌及当前渲染后端（`WEBGL2` / `CANVAS2D`）。
 - **商店链接与广告**：与原 iOS 移植版一致，已移除原广告 SDK；主菜单 `RATE` 按钮在网页版改为展示**关于与快捷键说明**弹窗。
 - **奖牌闪烁粒子**：沿用原 iOS 重建版范围，奖牌闪烁粒子效果尚未实现。
-- **高刷上限取决于浏览器调度**：游戏自身以 `requestAnimationFrame` 请求显示器最高刷新率，但部分浏览器在省电模式（如 macOS/iOS 低电量模式或 Safari 默认设置）下可能会将 `rAF` 限制在 60Hz。
+- **高刷上限取决于浏览器调度**：游戏自身以 `requestAnimationFrame` 请求显示器最高刷新率，并针对 60Hz 浏览器（如 iOS Safari 1ms 时间戳量化）内置 1:1 VSync 锁定以消除插值微卡顿。但 **iOS Safari / 微信内置浏览器默认将网页 `rAF` 锁定在 60Hz**（即便在 120Hz ProMotion 机型如 iPhone 17 Pro Max 上也是如此）。若需在 iPhone Safari 体验原生 **120Hz**，可前往系统 **设置 → Safari 浏览器 → 高级 → Feature Flags → 关闭 `Prefer Page Rendering Updates near 60fps`**（微信内置 WebView 受系统接口限制无法关闭该限制）。
 
 ---
 

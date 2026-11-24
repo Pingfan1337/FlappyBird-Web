@@ -51,6 +51,7 @@ export class GameRenderer {
     this.instanceData = new Float32Array(this.maxQuads * FLOATS_PER_QUAD);
     this.widthPx = 0;
     this.heightPx = 0;
+    this.frameIndex = 0;
 
     if (!this._initWebGL2()) {
       this._initCanvas2D();
@@ -68,7 +69,6 @@ export class GameRenderer {
         premultipliedAlpha: true,
         preserveDrawingBuffer: false,
         powerPreference: 'high-performance',
-        desynchronized: true,
       });
     } catch {
       return false;
@@ -94,24 +94,32 @@ export class GameRenderer {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 
-    const vao = gl.createVertexArray();
-    gl.bindVertexArray(vao);
-    const vbo = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
-    gl.bufferData(gl.ARRAY_BUFFER, this.instanceData.byteLength, gl.DYNAMIC_DRAW);
-
     const stride = FLOATS_PER_QUAD * 4;
-    gl.enableVertexAttribArray(0);
-    gl.vertexAttribPointer(0, 4, gl.FLOAT, false, stride, 0);
-    gl.vertexAttribDivisor(0, 1);
+    // Triple-buffered VAOs/VBOs mirror Metal's frameBuffers[3] to avoid GPU upload stalls.
+    this.vaos = [];
+    this.vbos = [];
+    for (let i = 0; i < 3; i++) {
+      const vao = gl.createVertexArray();
+      gl.bindVertexArray(vao);
+      const vbo = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+      gl.bufferData(gl.ARRAY_BUFFER, this.instanceData.byteLength, gl.STREAM_DRAW);
 
-    gl.enableVertexAttribArray(1);
-    gl.vertexAttribPointer(1, 4, gl.FLOAT, false, stride, 16);
-    gl.vertexAttribDivisor(1, 1);
+      gl.enableVertexAttribArray(0);
+      gl.vertexAttribPointer(0, 4, gl.FLOAT, false, stride, 0);
+      gl.vertexAttribDivisor(0, 1);
 
-    gl.enableVertexAttribArray(2);
-    gl.vertexAttribPointer(2, 2, gl.FLOAT, false, stride, 32);
-    gl.vertexAttribDivisor(2, 1);
+      gl.enableVertexAttribArray(1);
+      gl.vertexAttribPointer(1, 4, gl.FLOAT, false, stride, 16);
+      gl.vertexAttribDivisor(1, 1);
+
+      gl.enableVertexAttribArray(2);
+      gl.vertexAttribPointer(2, 2, gl.FLOAT, false, stride, 32);
+      gl.vertexAttribDivisor(2, 1);
+
+      this.vaos.push(vao);
+      this.vbos.push(vbo);
+    }
 
     gl.useProgram(prog);
     gl.uniform1i(gl.getUniformLocation(prog, 'uAtlas'), 0);
@@ -124,8 +132,6 @@ export class GameRenderer {
 
     this.gl = gl;
     this.prog = prog;
-    this.vao = vao;
-    this.vbo = vbo;
     this.tex = tex;
     this.mode = 'webgl2';
 
@@ -183,7 +189,10 @@ export class GameRenderer {
       }
       gl.clear(gl.COLOR_BUFFER_BIT);
       gl.uniform2f(this.uViewport, layout.width, layout.height);
-      gl.bindBuffer(gl.ARRAY_BUFFER, this.vbo);
+      const slot = this.frameIndex;
+      this.frameIndex = (slot + 1) % 3;
+      gl.bindVertexArray(this.vaos[slot]);
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.vbos[slot]);
       gl.bufferSubData(gl.ARRAY_BUFFER, 0, data.subarray(0, n * FLOATS_PER_QUAD));
       gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, n);
       return;

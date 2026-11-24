@@ -1,12 +1,9 @@
-// Low-latency Web Audio backend matching src/App/AudioBackend.hpp:
-// - Pre-fetches all 5 PCM WAV assets into memory at boot (without creating AudioContext early)
-// - Creates/unlocks AudioContext synchronously inside user gesture (touchstart/touchend/mousedown/click/keydown)
-// - Unlocks via silent WebAudio buffer + iOS audioSession='playback' + silent HTMLAudio fallback
-//   so iOS Safari, Android Chrome, and in-app WebViews play even if the iPhone silent switch is on
-// - Uses 3 interrupting channels matching AVAudioPlayerNodeBufferInterrupts:
-//     ch 0: event 9 (point, gain 0.2) & event 12 (hit, gain 1.0)
-//     ch 1: event 10 (swooshing, gain 1.0)
-//     ch 2: event 11 (die, gain 1.0) & event 13 (wing, gain 1.0)
+// Low-latency audio backend matching src/App/AudioBackend.hpp:
+// - Pre-fetches all 5 PCM WAV assets once at boot
+// - Primary engine: Web Audio API (3 interrupting channels, <5ms latency)
+// - Mobile / WeChat WebView fallback: 3-channel in-memory Blob HTMLAudioElement pool
+//   (bypasses iOS WKWebView Ambient-category mute and WeChat WebAudio restrictions)
+// - Hooks touchstart/touchend/mousedown/click/keydown + WeixinJSBridgeReady
 
 const EVENT_FILES = {
   9:  'assets/sfx_point.wav',
@@ -16,8 +13,8 @@ const EVENT_FILES = {
   13: 'assets/sfx_wing.wav',
 };
 
-// Valid 1-sample (0x0000) 44.1kHz 16-bit mono silent WAV for iOS WebView audio-session unlock.
 const SILENT_WAV_URI = 'data:audio/wav;base64,UklGRiYAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQIAAAAAAA==';
+const IS_WECHAT = typeof navigator !== 'undefined' && /MicroMessenger/i.test(navigator.userAgent || '');
 
 export class GameAudio {
   constructor(muted = false) {
@@ -25,23 +22,39 @@ export class GameAudio {
     this.master = null;
     this.buffers = new Map();
     this.rawBytes = new Map();
+    this.blobUrls = new Map();
+    this.htmlPool = new Map();       // event -> HTMLAudioElement
     this.activeSources = [null, null, null];
+    this.activeHtml = [null, null, null];
     this.muted = muted;
     this.fetchPromise = null;
     this.decodePromise = null;
     this.unlocked = false;
     this.htmlUnlocked = false;
+    this.preferHtml = IS_WECHAT;
+
+    if (IS_WECHAT && typeof document !== 'undefined') {
+      document.addEventListener('WeixinJSBridgeReady', () => {
+        try {
+          window.WeixinJSBridge?.invoke('getNetworkType', {}, () => this.activate());
+        } catch {
+          this.activate();
+        }
+      }, false);
+    }
   }
 
   preload() {
     if (this.fetchPromise) return this.fetchPromise;
     this.fetchPromise = Promise.all(
-      Object.entries(EVENT_FILES).map(async ([id, url]) => {
+      Object.entries(EVENT_FILES).map(async ([idStr, url]) => {
+        const id = Number(idStr);
         try {
           const res = await fetch(url);
           if (!res.ok) return;
           const buf = await res.arrayBuffer();
-          this.rawBytes.set(Number(id), buf);
+          this.rawBytes.set(id, buf);
+          this._prepareHtmlElement(id, buf);
         } catch {
           // Offline / missing asset shouldn't crash gameplay.
         }
@@ -50,6 +63,21 @@ export class GameAudio {
       if (this.ctx) return this._decodePending();
     });
     return this.fetchPromise;
+  }
+
+  _prepareHtmlElement(id, buf) {
+    if (this.htmlPool.has(id) || typeof Audio === 'undefined') return;
+    try {
+      const blobUrl = URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
+      this.blobUrls.set(id, blobUrl);
+      const el = new Audio(blobUrl);
+      el.preload = 'auto';
+      el.setAttribute('playsinline', '');
+      el.setAttribute('webkit-playsinline', '');
+      el.volume = id === 9 ? 0.2 : 1.0;
+      el.load();
+      this.htmlPool.set(id, el);
+    } catch {}
   }
 
   _setAudioSession(type) {
@@ -63,7 +91,10 @@ export class GameAudio {
   _ensureContext() {
     if (this.ctx) return this.ctx;
     const AudioCtx = window.AudioContext || window.webkitAudioContext;
-    if (!AudioCtx) return null;
+    if (!AudioCtx) {
+      this.preferHtml = true;
+      return null;
+    }
     this._setAudioSession(this.muted ? 'ambient' : 'playback');
     try {
       this.ctx = new AudioCtx({ latencyHint: 'interactive' });
@@ -77,7 +108,6 @@ export class GameAudio {
   }
 
   _decodeBuffer(ctx, arrayBuffer) {
-    // Support both Promise and legacy callback-style Safari decodeAudioData.
     return new Promise((resolve, reject) => {
       const p = ctx.decodeAudioData(arrayBuffer, resolve, reject);
       if (p && typeof p.then === 'function') p.then(resolve, reject);
@@ -90,7 +120,6 @@ export class GameAudio {
     const jobs = [];
     for (const [id, raw] of this.rawBytes) {
       if (this.buffers.has(id)) continue;
-      // Copy slice because decodeAudioData detaches the passed ArrayBuffer.
       jobs.push(
         this._decodeBuffer(ctx, raw.slice(0))
           .then(decoded => { this.buffers.set(id, decoded); })
@@ -103,8 +132,8 @@ export class GameAudio {
     }
   }
 
-  _playSilentUnlock(ctx) {
-    if (!this.unlocked) {
+  _unlockInGesture(ctx) {
+    if (ctx && !this.unlocked) {
       try {
         const buf = ctx.createBuffer(1, 1, 22050);
         const src = ctx.createBufferSource();
@@ -114,25 +143,41 @@ export class GameAudio {
         this.unlocked = true;
       } catch {}
     }
-    if (!this.htmlUnlocked && !this.muted) {
+    if (!this.htmlUnlocked && typeof Audio !== 'undefined') {
       this.htmlUnlocked = true;
-      try {
-        const a = new Audio(SILENT_WAV_URI);
-        a.setAttribute('playsinline', '');
-        const p = a.play();
-        if (p && typeof p.catch === 'function') p.catch(() => {});
-      } catch {}
+      // Unlock HTMLAudio pipeline in WeChat / iOS WKWebView using silent prime.
+      if (this.preferHtml && this.htmlPool.size > 0) {
+        for (const [id, el] of this.htmlPool) {
+          try {
+            const targetVol = id === 9 ? 0.2 : 1.0;
+            el.muted = true;
+            const p = el.play();
+            if (p && typeof p.then === 'function') {
+              p.then(() => {
+                el.pause();
+                el.currentTime = 0;
+                el.muted = false;
+                el.volume = targetVol;
+              }).catch(() => { el.muted = false; el.volume = targetVol; });
+            }
+          } catch {}
+        }
+      } else {
+        try {
+          const a = new Audio(SILENT_WAV_URI);
+          a.setAttribute('playsinline', '');
+          const p = a.play();
+          if (p && typeof p.catch === 'function') p.catch(() => {});
+        } catch {}
+      }
     }
   }
 
-  // Must be called synchronously inside a user gesture (touchstart/touchend/mousedown/click/keydown)
-  // to reliably unlock Web Audio on iOS Safari and mobile WebViews.
   activate() {
     const ctx = this._ensureContext();
-    if (!ctx) return;
     this._setAudioSession(this.muted ? 'ambient' : 'playback');
-    this._playSilentUnlock(ctx);
-    if (ctx.state !== 'running') {
+    this._unlockInGesture(ctx);
+    if (ctx && ctx.state !== 'running') {
       ctx.resume().catch(() => {});
     }
     if (this.rawBytes.size > this.buffers.size) {
@@ -146,6 +191,12 @@ export class GameAudio {
     if (this.ctx && this.ctx.state === 'running') {
       this.ctx.suspend().catch(() => {});
     }
+    for (let ch = 0; ch < 3; ch++) {
+      const el = this.activeHtml[ch];
+      if (el) {
+        try { el.pause(); } catch {}
+      }
+    }
   }
 
   setMuted(muted) {
@@ -154,16 +205,52 @@ export class GameAudio {
     if (this.master && this.ctx) {
       this.master.gain.setValueAtTime(this.muted ? 0 : 1, this.ctx.currentTime);
     }
+    if (this.muted) {
+      for (let ch = 0; ch < 3; ch++) {
+        const el = this.activeHtml[ch];
+        if (el) { try { el.pause(); } catch {} }
+      }
+    }
+  }
+
+  _playHtmlEvent(event) {
+    const el = this.htmlPool.get(event);
+    if (!el) return;
+    const channel = (event === 9 || event === 12) ? 0 : event === 10 ? 1 : 2;
+    const prev = this.activeHtml[channel];
+    if (prev && prev !== el) {
+      try { prev.pause(); prev.currentTime = 0; } catch {}
+    }
+    this.activeHtml[channel] = el;
+    try {
+      el.muted = false;
+      el.volume = event === 9 ? 0.2 : 1.0;
+      el.currentTime = 0;
+      const p = el.play();
+      if (p && typeof p.catch === 'function') p.catch(() => {});
+    } catch {}
   }
 
   playEvent(event) {
     if (event < 9 || event > 13 || this.muted) return;
+
+    if (this.preferHtml) {
+      this._playHtmlEvent(event);
+      return;
+    }
+
     const ctx = this.ctx;
-    if (!ctx) return;
+    if (!ctx) {
+      this._playHtmlEvent(event);
+      return;
+    }
 
     const startPlayback = () => {
       const buf = this.buffers.get(event);
-      if (!buf || !this.ctx) return;
+      if (!buf || !this.ctx) {
+        this._playHtmlEvent(event);
+        return;
+      }
       const channel = (event === 9 || event === 12) ? 0 : event === 10 ? 1 : 2;
       const prev = this.activeSources[channel];
       if (prev) {
@@ -189,9 +276,13 @@ export class GameAudio {
 
     if (ctx.state !== 'running') {
       ctx.resume().then(() => {
+        if (ctx.state !== 'running') {
+          this._playHtmlEvent(event);
+          return;
+        }
         if (this.buffers.has(event)) startPlayback();
         else this._decodePending().then(startPlayback);
-      }).catch(() => {});
+      }).catch(() => this._playHtmlEvent(event));
       return;
     }
 

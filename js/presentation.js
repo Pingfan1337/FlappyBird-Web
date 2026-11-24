@@ -15,18 +15,33 @@ const VH = id => RECT[id * 4 + 3] / 1024;
 
 export class PresentationClock {
   static step = 1 / 60;
-  constructor() { this.last = 0; this.remainder = 0; this.primed = false; }
-  reset() { this.last = 0; this.remainder = 0; this.primed = false; }
+  constructor() { this.last = 0; this.remainder = 0; this.primed = false; this.near60Count = 0; }
+  reset() { this.last = 0; this.remainder = 0; this.primed = false; this.near60Count = 0; }
   advance(timestampSec) {
     if (!this.primed) { this.primed = true; this.last = timestampSec; return 1; }
     const dt = Math.min(0.1, Math.max(0, timestampSec - this.last));
-    this.remainder += dt;
     this.last = timestampSec;
+    // On 60Hz browsers (e.g. iOS Safari/WKWebView), 1ms timestamp quantization would
+    // otherwise cause 0-tick / 2-tick oscillation and visible micro-stutter.
+    // Lock cleanly 1:1 to 60Hz vsync while preserving free accumulation for 120Hz+ or drops.
+    if (dt >= 0.0145 && dt <= 0.0190) {
+      if (this.near60Count < 4) this.near60Count++;
+      if (this.near60Count >= 2) {
+        if (this.remainder === 0) return 1;
+        const catchup = Math.max(1, Math.round((this.remainder + dt) / PresentationClock.step));
+        this.remainder = 0;
+        return catchup;
+      }
+    } else {
+      this.near60Count = 0;
+    }
+    this.remainder += dt;
     const ticks = Math.trunc((this.remainder + 1e-9) / PresentationClock.step);
     this.remainder = Math.max(0, this.remainder - ticks * PresentationClock.step);
     return ticks;
   }
   blend() {
+    if (this.near60Count >= 2 && this.remainder === 0) return 1;
     const b = this.remainder / PresentationClock.step;
     return b < 0 ? 0 : b > 1 ? 1 : b;
   }

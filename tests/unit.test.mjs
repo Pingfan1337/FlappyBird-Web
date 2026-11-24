@@ -46,6 +46,22 @@ for (const hz of [60, 120, 144, 240]) {
   assert.ok(Math.abs(ticks - 121) <= 2, `Expected ~121 ticks at ${hz}Hz, got ${ticks}`);
 }
 
+// 2b. Quantized 60Hz (1ms-rounded rAF like iOS Safari) locks cleanly 1:1 with zero 0/2-tick stutter
+{
+  const qClock = new PresentationClock();
+  let t = 10;
+  qClock.advance(t);
+  const intervals = [0.016, 0.017, 0.017, 0.016, 0.017, 0.017];
+  for (let i = 0; i < 60; i++) {
+    t += intervals[i % intervals.length];
+    const ticks = qClock.advance(t);
+    if (i >= 2) {
+      assert.equal(ticks, 1, `Expected 1 tick under 60Hz quantized rAF at frame ${i}`);
+      assert.equal(qClock.blend(), 1, `Expected blend=1 under 60Hz lock at frame ${i}`);
+    }
+  }
+}
+
 // 3. FramePacingStats P99 calculation
 const stats = new FramePacingStats();
 for (let i = 1; i <= 100; i++) stats.presented(i * (1 / 120)); // 99 intervals at 8.33ms
