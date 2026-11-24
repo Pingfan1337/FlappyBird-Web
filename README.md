@@ -137,15 +137,14 @@ PresentationClock.advance(nowSec)
 - 与原版 `Presentation.hpp` 一致，渲染层始终处于“上一逻辑帧到当前逻辑帧”之间，因此即使遇到浏览器 `rAF` 偶尔出现 `0 tick / 2 tick` 边界抖动，视觉运动依然保持平滑线性连续。
 - 地面循环（`landX` 从 `-23` 跳回 `0`）在插值时会识别周期跳变并补偿 `-24`，避免地面倒退闪烁。
 
-### 3. 单 Draw Call WebGL2 实例化渲染
+### 3. 四缓冲轮换非实例化 WebGL 渲染
 
-为在浏览器端获得最高渲染效率与最低 CPU 开销，`js/renderer.js` 采用 **WebGL2 Instanced Rendering**：
+为在 iOS Safari / 微信 WKWebView / 桌面浏览器全平台获得最低延迟与稳定 P99，`js/renderer.js` 严格对齐原 iOS Metal（`main.mm`）的 `frameBuffers` 架构：
 
-- **每图元仅 10 个 float（40 字节）**：`aRect (x, y, w, h)`、`aUV (u, v, uw, vh)`、`aRotAlpha (angleDeg, alpha)`。
-- **GPU 端展开与旋转**：顶点着色器通过 `gl_VertexID`（0..3 的 `TRIANGLE_STRIP`）展开四角并完成旋转与 NDC 坐标投影，JS 主线程不执行三角函数与 6 顶点展开。
-- **零垃圾回收**：每帧直接写入预分配的 `Float32Array`（容量 256 图元），通过单次 `gl.bufferSubData` + `gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, n)` 完成整帧绘制。
-- **混合模式对齐 Metal**：纹理上传启用 `UNPACK_PREMULTIPLY_ALPHA_WEBGL = true`，混合模式设为 `gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)`，采样器使用 `LINEAR` + `CLAMP_TO_EDGE` 且关闭 Mipmap，彻底杜绝旋转精灵边缘黑边与邻接图集渗色。
-- **自动降级**：若运行环境禁用了 WebGL2，自动无缝切换至 `Canvas 2D` 渲染路径。
+- **4 槽位预分配 VBO 轮换（Ring Buffer）**：启动时一次性创建 4 个 `STREAM_DRAW` 顶点缓冲与 1 个静态 `Uint16Array` 索引缓冲，每帧轮换写入（单个 VBO 间隔 4 帧才复用），消除 ANGLE→Metal 的 CPU/GPU 同步等待。
+- **非实例化经典 `gl.drawElements` 单 Draw Call**：避开 WebKit 实例化绘制兼容问题与大 Uniform 数组寄存器溢出，整帧仅 1 次绘制调用。
+- **原生对齐 Metal 表面格式**：使用 `alpha: true` + `premultipliedAlpha: true` + `UNPACK_PREMULTIPLY_ALPHA_WEBGL = true` 与 `gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)`，1:1 映射 Apple Metal `BGRA8Unorm` `IOSurface`，无额外格式转换 blit；画布 DPR 上限为 `2`（相对 `288×512` 像素素材仍保持 >3 倍超采样）。
+- **紧急降级**：仅在 WebGL 上下文完全不可用时回退至 `Canvas 2D`。
 
 ### 4. 多端全屏自适应布局
 

@@ -20,7 +20,9 @@ export class InputController {
     this._ly = 0;
 
     this.activePointerId = null;
-    this.pointers = new Map();
+    this.touchCount = 0;
+    this.p0Id = -1; this.p0X = 0; this.p0Y = 0;
+    this.p1Id = -1; this.p1X = 0; this.p1Y = 0;
     this.twoFingerDownAt = 0;
     this.twoFingerLastTapAt = 0;
     this.twoFingerPending = false;
@@ -81,12 +83,16 @@ export class InputController {
       this.actions.unlockAudio();
       this.actions.onFirstInteract();
 
-      this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType });
-      if (this.pointers.size === 2 && e.pointerType === 'touch') {
-        this.twoFingerPending = true;
-        this.twoFingerDownAt = performance.now();
-      } else if (this.pointers.size > 2) {
-        this.twoFingerPending = false;
+      if (e.pointerType === 'touch') {
+        this.touchCount++;
+        if (this.touchCount === 1) { this.p0Id = e.pointerId; this.p0X = e.clientX; this.p0Y = e.clientY; }
+        else if (this.touchCount === 2) {
+          this.p1Id = e.pointerId; this.p1X = e.clientX; this.p1Y = e.clientY;
+          this.twoFingerPending = true;
+          this.twoFingerDownAt = performance.now();
+        } else {
+          this.twoFingerPending = false;
+        }
       }
 
       if (e.pointerType === 'mouse' && e.button !== 0) return;
@@ -96,7 +102,7 @@ export class InputController {
         return;
       }
 
-      if (this.activePointerId !== null && this.pointers.size > 1) return;
+      if (this.activePointerId !== null && this.touchCount > 1) return;
 
       this._updateCoords(e.clientX, e.clientY);
       this.activePointerId = e.pointerId;
@@ -108,11 +114,9 @@ export class InputController {
     }, { passive: true });
 
     c.addEventListener('pointermove', e => {
-      if (this.pointers.has(e.pointerId)) {
-        const p = this.pointers.get(e.pointerId);
-        if (this.twoFingerPending && (Math.hypot(e.clientX - p.x, e.clientY - p.y) > 24)) {
-          this.twoFingerPending = false;
-        }
+      if (this.twoFingerPending) {
+        if (e.pointerId === this.p0Id && Math.hypot(e.clientX - this.p0X, e.clientY - this.p0Y) > 24) this.twoFingerPending = false;
+        else if (e.pointerId === this.p1Id && Math.hypot(e.clientX - this.p1X, e.clientY - this.p1Y) > 24) this.twoFingerPending = false;
       }
       if (e.pointerId === this.activePointerId) {
         this._updateCoords(e.clientX, e.clientY);
@@ -125,16 +129,20 @@ export class InputController {
     }, { passive: true });
 
     const endPointer = e => {
-      this.pointers.delete(e.pointerId);
-      if (this.twoFingerPending && this.pointers.size === 0) {
-        this.twoFingerPending = false;
-        const now = performance.now();
-        if (now - this.twoFingerDownAt < 380) {
-          if (now - this.twoFingerLastTapAt < 450) {
-            this.twoFingerLastTapAt = 0;
-            this.actions.toggleFps();
-          } else {
-            this.twoFingerLastTapAt = now;
+      if (e.pointerType === 'touch') {
+        if (this.touchCount > 0) this.touchCount--;
+        if (e.pointerId === this.p0Id) this.p0Id = -1;
+        if (e.pointerId === this.p1Id) this.p1Id = -1;
+        if (this.twoFingerPending && this.touchCount === 0) {
+          this.twoFingerPending = false;
+          const now = performance.now();
+          if (now - this.twoFingerDownAt < 380) {
+            if (now - this.twoFingerLastTapAt < 450) {
+              this.twoFingerLastTapAt = 0;
+              this.actions.toggleFps();
+            } else {
+              this.twoFingerLastTapAt = now;
+            }
           }
         }
       }
@@ -207,7 +215,8 @@ export class InputController {
     });
 
     window.addEventListener('blur', () => {
-      this.pointers.clear();
+      this.touchCount = 0;
+      this.p0Id = this.p1Id = -1;
       this.activePointerId = null;
       this.activeKey = null;
       g.touching = false;

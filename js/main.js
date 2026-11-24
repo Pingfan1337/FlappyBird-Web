@@ -57,8 +57,8 @@ async function boot() {
   audio.preload();
 
   const atlasImg = await loadImage('assets/atlas.png');
-  const preferredRenderer = new URLSearchParams(location.search).get('renderer') || 'auto';
-  const renderer = await GameRenderer.create(canvas, atlasImg, preferredRenderer);
+  const force2d = new URLSearchParams(location.search).get('renderer') === '2d';
+  const renderer = new GameRenderer(canvas, atlasImg, force2d);
 
   const game = new OriginalGame();
   game.seed((Date.now() % 32000) || 1);
@@ -169,7 +169,7 @@ async function boot() {
             <div><span>最高分</span><strong>${best}</strong></div>
             <div><span>总局数</span><strong>${gamesPlayed}</strong></div>
             <div><span>最高奖牌</span><strong>${medalName}</strong></div>
-            <div><span>渲染后端</span><strong>${renderer.mode.toUpperCase()}</strong></div>
+            <div><span>渲染后端</span><strong>${renderer.mode.toUpperCase()} · v10</strong></div>
           </div>
           <p class="modal-note">原版 Game Center 排行榜属于原开发者账号，网页版已在本地浏览器持久保存您的最高分。</p>
         `);
@@ -182,7 +182,7 @@ async function boot() {
             <li><b>触屏</b>：任意位置点击振翅；双指双击切换 FPS / P99</li>
             <li><b>鼠标 / 触摸板</b>：左键点击任意位置振翅</li>
           </ul>
-          <p class="modal-note">当前版本：v9 · 渲染后端：${renderer.mode.toUpperCase()} · 原版美术、音效与角色版权归 .GEARS / dotGEARS 所有。</p>
+          <p class="modal-note">当前版本：v10 · 渲染后端：${renderer.mode.toUpperCase()} · 原版美术、音效与角色版权归 .GEARS / dotGEARS 所有。</p>
         `);
       }
     }
@@ -227,6 +227,8 @@ async function boot() {
 
   syncHud();
 
+  let lastFpsText = '';
+
   function frame(nowMs) {
     requestAnimationFrame(frame);
     const nowSec = nowMs * 0.001;
@@ -257,7 +259,11 @@ async function boot() {
       const interval = nowSec - statsStart;
       if (interval >= 1.0) {
         const stats = pacing.take();
-        fpsEl.textContent = `${Math.round(stats.frames / interval)} FPS | P99 ${stats.p99Milliseconds.toFixed(1)} ms`;
+        const text = `${Math.round(stats.frames / interval)} FPS | P99 ${stats.p99Milliseconds.toFixed(1)} ms`;
+        if (text !== lastFpsText) {
+          lastFpsText = text;
+          fpsEl.textContent = text;
+        }
         statsStart = nowSec;
       }
     }

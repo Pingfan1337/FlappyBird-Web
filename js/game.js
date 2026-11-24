@@ -141,6 +141,7 @@ export class OriginalGame {
     // 1-tick press latches so sub-16ms trackpad/touch/keyboard taps never drop.
     this.virtualButton = -1; this.virtualHeld = false;
     this.touchLatch = false; this.virtualLatch = false;
+    this._digits = new Int8Array(12);
     // std::rand() replacement (injectable for deterministic tests).
     this.rand = () => (Math.random() * 2147483648) | 0;
   }
@@ -205,11 +206,13 @@ export class OriginalGame {
     this.timer(2, 1000);
   }
   drawScore(number) {
-    const str = String(number);
+    const digits = this._digits;
+    let count = 0, n = number;
+    do { digits[count++] = n % 10; n = trunc(n / 10); } while (n > 0);
     let width = 2;
-    for (let i = 0; i < str.length; i++) width += W(FONT[str.charCodeAt(i) - 48]) - 4;
+    for (let i = count - 1; i >= 0; i--) width += W(FONT[digits[i]]) - 4;
     let x = 144 - trunc(width / 2);
-    for (let i = 0; i < str.length; i++) { const id = FONT[str.charCodeAt(i) - 48]; this.draw(id, x, 78); x += W(id) - 4; }
+    for (let i = count - 1; i >= 0; i--) { const id = FONT[digits[i]]; this.draw(id, x, 78); x += W(id) - 4; }
   }
   smallNumber(number, right, y) {
     do { const d = number % 10; number = trunc(number / 10); this.draw(NUM[d], right - 16, y); right -= 16; } while (number > 0);

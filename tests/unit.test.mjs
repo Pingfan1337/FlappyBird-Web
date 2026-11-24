@@ -46,36 +46,24 @@ for (const hz of [60, 120, 144, 240]) {
   assert.ok(Math.abs(ticks - 121) <= 2, `Expected ~121 ticks at ${hz}Hz, got ${ticks}`);
 }
 
-// 2b. Quantized 60Hz (1ms-rounded rAF like iOS Safari) locks cleanly 1:1 with zero 0/2-tick stutter
-{
-  const qClock = new PresentationClock();
-  let t = 10;
-  qClock.advance(t);
-  const intervals = [0.016, 0.017, 0.017, 0.016, 0.017, 0.017];
-  for (let i = 0; i < 60; i++) {
-    t += intervals[i % intervals.length];
-    const ticks = qClock.advance(t);
-    if (i >= 12) {
-      assert.equal(ticks, 1, `Expected 1 tick under 60Hz quantized rAF at frame ${i}`);
-      assert.equal(qClock.blend(), 0, `Expected continuous blend=0 under 60Hz lock at frame ${i}`);
-    }
-  }
-}
-
-// 2c. Jittery 120Hz rAF (7ms..10ms callbacks) PLL locks cleanly to exact 1/120s steps
-{
-  const hClock = new PresentationClock();
-  let t = 10;
-  hClock.advance(t);
-  const jitter120 = [0.008, 0.009, 0.007, 0.010, 0.007, 0.009];
-  for (let i = 0; i < 60; i++) {
-    t += jitter120[i % jitter120.length];
-    const ticks = hClock.advance(t);
-    if (i >= 12) {
-      const b = hClock.blend();
-      assert.ok(ticks === 0 || ticks === 1, `120Hz ticks should be 0 or 1, got ${ticks}`);
-      assert.ok(Math.abs(b - 0.5) < 1e-3 || b < 1e-3, `120Hz blend should lock to 0.0 or 0.5, got ${b}`);
-    }
+// 2b. Motion continuity under 60Hz quantized rAF, 120Hz, and 80/120Hz VRR (mirrors MotionContinuityChecks.cpp)
+for (const pattern of [
+  [0.016, 0.017, 0.017],           // 60Hz with 1ms Safari timestamp quantization
+  [1 / 120],                        // steady 120Hz
+  [1 / 120, 1 / 120, 1 / 80],      // ProMotion 80/120Hz VRR
+]) {
+  const c = new PresentationClock();
+  let t = 10, totalTicks = 0;
+  totalTicks += c.advance(t);
+  let prevRenderedTick = totalTicks - 1 + c.blend();
+  for (let i = 0; i < 300; i++) {
+    const dt = pattern[i % pattern.length];
+    t += dt;
+    totalTicks += c.advance(t);
+    const renderedTick = totalTicks - 1 + c.blend();
+    const delta = renderedTick - prevRenderedTick;
+    assert.ok(Math.abs(delta - dt * 60) < 1e-6, `Expected continuous tick delta ${(dt * 60).toFixed(4)}, got ${delta.toFixed(4)}`);
+    prevRenderedTick = renderedTick;
   }
 }
 

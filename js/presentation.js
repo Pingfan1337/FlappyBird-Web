@@ -13,8 +13,6 @@ const V = id => RECT[id * 4 + 1] / 1024;
 const UW = id => RECT[id * 4 + 2] / 1024;
 const VH = id => RECT[id * 4 + 3] / 1024;
 
-const STD_RATES = [60, 72, 75, 80, 90, 100, 120, 144, 165, 180, 240];
-
 function insertionSort(arr, n) {
   for (let i = 1; i < n; i++) {
     const v = arr[i];
@@ -27,86 +25,21 @@ function insertionSort(arr, n) {
   }
 }
 
+// Direct 1:1 port of src/Core/Presentation.hpp::PresentationClock.
+// Fixed 60 Hz simulation with exact fractional blend in [0, 1] — continuous across
+// 60Hz, 80Hz, 90Hz, 120Hz, 144Hz, 240Hz and variable ProMotion without phase jumps.
 export class PresentationClock {
   static step = 1 / 60;
-  constructor() {
-    this.dts = new Float64Array(16);
-    this.sorted = new Float64Array(16);
-    this.reset();
-  }
-  reset() {
-    this.last = 0;
-    this.remainder = 0;
-    this.primed = false;
-    this.dtCount = 0;
-    this.dtCursor = 0;
-    this.period = 0;
-    this.phaseError = 0;
-    this.fastCount = 0;
-  }
-  _updatePeriod(dt) {
-    if (dt >= 0.003 && dt <= 0.035) {
-      this.dts[this.dtCursor] = dt;
-      this.dtCursor = (this.dtCursor + 1) & 15;
-      if (this.dtCount < 16) this.dtCount++;
-      if (dt < 0.0135) {
-        this.fastCount++;
-        if (this.fastCount >= 2 && this.period > 0.0135) {
-          this.period = dt;
-          this.phaseError = 0;
-        }
-      } else {
-        this.fastCount = 0;
-      }
-    }
-    if (this.dtCount < 4) return 0;
-    const n = this.dtCount;
-    for (let i = 0; i < n; i++) this.sorted[i] = this.dts[i];
-    insertionSort(this.sorted, n);
-    const baseMin = this.sorted[Math.min(1, n - 1)];
-    let singleEnd = n;
-    for (let i = 0; i < n; i++) {
-      if (this.sorted[i] > baseMin * 1.45) { singleEnd = i; break; }
-    }
-    // Only engage VSync PLL when >=75% of recent frames share the same cadence.
-    // Mixed ProMotion VRR (e.g. 80Hz <-> 120Hz) smoothly falls back to continuous dt.
-    if (singleEnd < Math.ceil(n * 0.75)) {
-      this.period = 0;
-      this.phaseError = 0;
-      return 0;
-    }
-    const raw = this.sorted[Math.floor((Math.max(1, singleEnd) - 1) * 0.5)];
-    let best = raw, bestDiff = 0.0015;
-    for (let i = 0; i < STD_RATES.length; i++) {
-      const candidate = 1 / STD_RATES[i];
-      const diff = Math.abs(raw - candidate);
-      if (diff < bestDiff) { bestDiff = diff; best = candidate; }
-    }
-    if (this.period === 0 && best > 0) {
-      this.remainder = Math.round(this.remainder / best) * best;
-      this.remainder %= PresentationClock.step;
-    }
-    this.period = best;
-    return best;
-  }
+  constructor() { this.last = 0; this.remainder = 0; this.primed = false; }
+  reset() { this.last = 0; this.remainder = 0; this.primed = false; }
   advance(timestampSec) {
     if (!this.primed) { this.primed = true; this.last = timestampSec; return 1; }
-    const dt = Math.min(0.1, Math.max(0, timestampSec - this.last));
+    const dt = timestampSec - this.last;
+    this.remainder += dt < 0 ? 0 : dt > 0.1 ? 0.1 : dt;
     this.last = timestampSec;
-
-    const T = this._updatePeriod(dt);
-    let stepDt = dt;
-    if (T > 0) {
-      const vsyncs = Math.max(1, Math.round((dt + this.phaseError) / T));
-      stepDt = vsyncs * T;
-      this.phaseError += dt - stepDt;
-      if (this.phaseError > T) this.phaseError = T;
-      else if (this.phaseError < -T) this.phaseError = -T;
-    }
-
-    this.remainder += stepDt;
     const ticks = Math.trunc((this.remainder + 1e-9) / PresentationClock.step);
-    this.remainder = Math.max(0, this.remainder - ticks * PresentationClock.step);
+    const rem = this.remainder - ticks * PresentationClock.step;
+    this.remainder = rem > 0 ? rem : 0;
     return ticks;
   }
   blend() {

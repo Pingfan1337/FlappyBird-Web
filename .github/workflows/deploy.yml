@@ -43,7 +43,7 @@ jobs:
         with:
           path: _site
       - name: Wait for artifact metadata propagation
-        run: sleep 3
+        run: sleep 6
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
