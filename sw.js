@@ -1,4 +1,4 @@
-const CACHE = 'flappy12-web-v10';
+const CACHE = 'flappy12-web';
 const ASSETS = [
   './',
   './index.html',
