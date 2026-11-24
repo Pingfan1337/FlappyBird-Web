@@ -179,7 +179,7 @@ export class GameRenderer {
       }
       gl.clear(gl.COLOR_BUFFER_BIT);
       gl.uniform2f(this.uViewport, layout.width, layout.height);
-      gl.uniform4fv(this.uQuads, data, 0, n * 3);
+      gl.uniform4fv(this.uQuads, data, 0, n * FLOATS_PER_QUAD);
       gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, n);
       return;
     }
