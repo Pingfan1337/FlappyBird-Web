@@ -71,7 +71,9 @@ async function boot() {
 
   function updateLayout() {
     const rect = canvas.getBoundingClientRect();
-    const dpr = Math.min(window.devicePixelRatio || 1, 3);
+    // 2x DPR gives >3x oversampling over the 288x512 pixel-art sprites while cutting
+    // iOS GPUProcess IOSurface memory & fragment fill bandwidth by 56% vs 3x DPR.
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
     const cs = getComputedStyle(safeProbe);
     const safeTop = parseFloat(cs.paddingTop) || 0;
     const safeBottom = parseFloat(cs.paddingBottom) || 0;

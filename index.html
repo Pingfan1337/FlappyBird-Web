@@ -58,14 +58,15 @@
 
     #fps-badge {
       pointer-events: auto; cursor: pointer;
-      contain: layout style paint;
+      contain: strict;
       transform: translateZ(0);
-      min-width: 128px; text-align: center;
-      font: 500 11px/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      width: 150px; height: 24px; line-height: 24px;
+      text-align: center; white-space: nowrap;
+      font: 500 11px/24px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
       font-variant-numeric: tabular-nums;
       color: #fff; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.75);
       background: rgba(15, 23, 42, 0.44);
-      padding: 5px 8px; border-radius: 8px;
+      padding: 0 8px; border-radius: 8px;
       border: 1px solid rgba(255, 255, 255, 0.16);
     }
     #fps-badge[hidden] { display: none; }

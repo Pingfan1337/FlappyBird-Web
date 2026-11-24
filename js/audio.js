@@ -181,8 +181,8 @@ export class GameAudio {
   }
 
   activate() {
-    if (this.unlocked && this.htmlUnlocked && this.ctx && this.ctx.state === 'running' && this.buffers.size >= 5) {
-      return;
+    if (this.unlocked && this.htmlUnlocked && (this.preferHtml || (this.ctx && this.ctx.state === 'running' && this.buffers.size >= 5))) {
+      return true;
     }
     const ctx = this._ensureContext();
     this._setAudioSession(this.muted ? 'ambient' : 'playback');
@@ -195,6 +195,7 @@ export class GameAudio {
     } else if (this.fetchPromise && this.buffers.size === 0) {
       this.fetchPromise.then(() => this._decodePending());
     }
+    return this.unlocked && this.htmlUnlocked && (this.preferHtml || (this.ctx && this.ctx.state === 'running' && this.buffers.size >= 5));
   }
 
   pause() {

@@ -15,6 +15,18 @@ const VH = id => RECT[id * 4 + 3] / 1024;
 
 const STD_RATES = [60, 72, 75, 80, 90, 100, 120, 144, 165, 180, 240];
 
+function insertionSort(arr, n) {
+  for (let i = 1; i < n; i++) {
+    const v = arr[i];
+    let j = i - 1;
+    while (j >= 0 && arr[j] > v) {
+      arr[j + 1] = arr[j];
+      j--;
+    }
+    arr[j + 1] = v;
+  }
+}
+
 export class PresentationClock {
   static step = 1 / 60;
   constructor() {
@@ -37,7 +49,6 @@ export class PresentationClock {
       this.dts[this.dtCursor] = dt;
       this.dtCursor = (this.dtCursor + 1) & 15;
       if (this.dtCount < 16) this.dtCount++;
-      // Immediately exit 60Hz lock if high-refresh frames appear (e.g. ProMotion ramping up).
       if (dt < 0.0135) {
         this.fastCount++;
         if (this.fastCount >= 2 && this.period > 0.0135) {
@@ -50,9 +61,8 @@ export class PresentationClock {
     }
     if (this.dtCount < 4) return 0;
     const n = this.dtCount;
-    this.sorted.set(this.dts.subarray(0, n));
-    this.sorted.subarray(0, n).sort();
-    // Ignore isolated dropped frames (>1.45x base) and take median to cancel +/- rAF jitter.
+    for (let i = 0; i < n; i++) this.sorted[i] = this.dts[i];
+    insertionSort(this.sorted, n);
     const baseMin = this.sorted[Math.min(1, n - 1)];
     let singleEnd = n;
     for (let i = 0; i < n; i++) {
@@ -77,8 +87,6 @@ export class PresentationClock {
     const dt = Math.min(0.1, Math.max(0, timestampSec - this.last));
     this.last = timestampSec;
 
-    // Display-VSync PLL: absorbs rAF callback & 1ms-quantization jitter on 60Hz and 120Hz+
-    // displays so interpolation blend advances at an exact uniform cadence.
     const T = this._updatePeriod(dt);
     let stepDt = dt;
     if (T > 0) {
@@ -142,8 +150,8 @@ export class FramePacingStats {
     const n = this.size, frames = this.frames;
     this.frames = 0;
     if (!n) return { frames, p99Milliseconds: 0 };
-    this.sorted.set(this.intervals.subarray(0, n));
-    this.sorted.subarray(0, n).sort();
+    for (let i = 0; i < n; i++) this.sorted[i] = this.intervals[i];
+    insertionSort(this.sorted, n);
     return { frames, p99Milliseconds: this.sorted[Math.trunc((n - 1) * 99 / 100)] };
   }
 }

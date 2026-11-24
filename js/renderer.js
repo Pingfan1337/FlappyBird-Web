@@ -1,34 +1,39 @@
-// High-efficiency instanced WebGL2 renderer (with automatic Canvas 2D fallback).
+// High-efficiency zero-VBO-upload WebGL2 instanced renderer (with Canvas 2D fallback).
 //
-// In WebGL2 mode, the entire frame renders in ONE drawArraysInstanced call
-// using a 10-float-per-quad preallocated Float32Array (zero per-frame GC).
-// Premultiplied alpha + linear non-mipmapped sampling matches the iOS Metal
-// pipeline in src/App/Shaders.hpp and src/App/main.mm.
+// All sprite quads are uploaded inline via a single uniform4fv call (mapped by ANGLE
+// directly to Metal's inline constant bytes), completely eliminating per-frame
+// bufferSubData / VBO synchronization stalls on iOS Safari's GPUProcess.
+// Only 1 static VAO + 1 static 4-vertex strip buffer exist for the lifetime of the page.
 
-const VERT_SRC = `#version 300 es
+const FLOATS_PER_QUAD = 12; // 3 vec4s per instance: rect(xywh), uv(uvwh), rotAlpha(deg, alpha, 0, 0)
+
+function makeVertSrc(maxQuads) {
+  return `#version 300 es
 precision highp float;
-layout(location = 0) in vec4 aRect;     // x, y, w, h (logical layout units)
-layout(location = 1) in vec4 aUV;       // u, v, uw, vh
-layout(location = 2) in vec2 aRotAlpha; // angleDeg, alpha
-uniform vec2 uViewport;                 // layout.width, layout.height
+layout(location = 0) in vec2 aCorner;
+uniform vec2 uViewport;
+uniform vec4 uQuads[${maxQuads * 3}];
 out vec2 vUv;
 out float vAlpha;
 void main() {
-  // Triangle strip corners: (0,0), (1,0), (0,1), (1,1)
-  vec2 c = vec2(float(gl_VertexID & 1), float((gl_VertexID >> 1) & 1));
-  vec2 pos = aRect.xy + c * aRect.zw;
-  if (aRotAlpha.x != 0.0) {
-    vec2 center = aRect.xy + aRect.zw * 0.5;
-    float rad = aRotAlpha.x * 0.017453292519943295; // pi / 180
+  int base = gl_InstanceID * 3;
+  vec4 rect = uQuads[base];
+  vec4 uv = uQuads[base + 1];
+  vec4 extra = uQuads[base + 2];
+  vec2 pos = rect.xy + aCorner * rect.zw;
+  if (extra.x != 0.0) {
+    vec2 center = rect.xy + rect.zw * 0.5;
+    float rad = extra.x * 0.017453292519943295;
     float s = sin(rad), cs = cos(rad);
     vec2 d = pos - center;
     pos = vec2(d.x * cs - d.y * s, d.x * s + d.y * cs) + center;
   }
   vec2 ndc = vec2(pos.x / uViewport.x * 2.0 - 1.0, 1.0 - pos.y / uViewport.y * 2.0);
   gl_Position = vec4(ndc, 0.0, 1.0);
-  vUv = aUV.xy + c * aUV.zw;
-  vAlpha = aRotAlpha.y;
+  vUv = uv.xy + aCorner * uv.zw;
+  vAlpha = extra.y;
 }`;
+}
 
 const FRAG_SRC = `#version 300 es
 precision mediump float;
@@ -40,18 +45,15 @@ void main() {
   fragColor = texture(uAtlas, vUv) * vAlpha;
 }`;
 
-const FLOATS_PER_QUAD = 10;
-
 export class GameRenderer {
   constructor(canvas, atlasImage) {
     this.canvas = canvas;
     this.atlasImage = atlasImage;
     this.mode = 'none';
-    this.maxQuads = 256;
-    this.instanceData = new Float32Array(this.maxQuads * FLOATS_PER_QUAD);
+    this.maxQuads = 80;
+    this.uniformData = null;
     this.widthPx = 0;
     this.heightPx = 0;
-    this.frameIndex = 0;
 
     if (!this._initWebGL2()) {
       this._initCanvas2D();
@@ -75,7 +77,11 @@ export class GameRenderer {
     }
     if (!gl) return false;
 
-    const vs = this._compile(gl, gl.VERTEX_SHADER, VERT_SRC);
+    const maxUniformVecs = gl.getParameter(gl.MAX_VERTEX_UNIFORM_VECTORS) || 256;
+    this.maxQuads = Math.min(128, Math.max(48, Math.floor((maxUniformVecs - 8) / 3)));
+    this.uniformData = new Float32Array(this.maxQuads * FLOATS_PER_QUAD);
+
+    const vs = this._compile(gl, gl.VERTEX_SHADER, makeVertSrc(this.maxQuads));
     const fs = this._compile(gl, gl.FRAGMENT_SHADER, FRAG_SRC);
     if (!vs || !fs) return false;
 
@@ -94,36 +100,19 @@ export class GameRenderer {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 
-    const stride = FLOATS_PER_QUAD * 4;
-    // Triple-buffered VAOs/VBOs mirror Metal's frameBuffers[3] to avoid GPU upload stalls.
-    this.vaos = [];
-    this.vbos = [];
-    for (let i = 0; i < 3; i++) {
-      const vao = gl.createVertexArray();
-      gl.bindVertexArray(vao);
-      const vbo = gl.createBuffer();
-      gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
-      gl.bufferData(gl.ARRAY_BUFFER, this.instanceData.byteLength, gl.STREAM_DRAW);
-
-      gl.enableVertexAttribArray(0);
-      gl.vertexAttribPointer(0, 4, gl.FLOAT, false, stride, 0);
-      gl.vertexAttribDivisor(0, 1);
-
-      gl.enableVertexAttribArray(1);
-      gl.vertexAttribPointer(1, 4, gl.FLOAT, false, stride, 16);
-      gl.vertexAttribDivisor(1, 1);
-
-      gl.enableVertexAttribArray(2);
-      gl.vertexAttribPointer(2, 2, gl.FLOAT, false, stride, 32);
-      gl.vertexAttribDivisor(2, 1);
-
-      this.vaos.push(vao);
-      this.vbos.push(vbo);
-    }
+    // Static 4-vertex triangle strip VAO/VBO (never mutated per frame).
+    const vao = gl.createVertexArray();
+    gl.bindVertexArray(vao);
+    const vbo = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]), gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
 
     gl.useProgram(prog);
     gl.uniform1i(gl.getUniformLocation(prog, 'uAtlas'), 0);
     this.uViewport = gl.getUniformLocation(prog, 'uViewport');
+    this.uQuads = gl.getUniformLocation(prog, 'uQuads');
 
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
@@ -132,6 +121,7 @@ export class GameRenderer {
 
     this.gl = gl;
     this.prog = prog;
+    this.vao = vao;
     this.tex = tex;
     this.mode = 'webgl2';
 
@@ -152,7 +142,7 @@ export class GameRenderer {
   }
 
   _initCanvas2D() {
-    this.ctx2d = this.canvas.getContext('2d', { alpha: false, desynchronized: true });
+    this.ctx2d = this.canvas.getContext('2d', { alpha: false });
     this.mode = 'canvas2d';
   }
 
@@ -174,7 +164,7 @@ export class GameRenderer {
       if (this.contextLost) return;
       const gl = this.gl;
       const n = Math.min(quads.n, this.maxQuads);
-      const data = this.instanceData;
+      const data = this.uniformData;
       for (let i = 0, o = 0; i < n; i++, o += FLOATS_PER_QUAD) {
         data[o]     = quads.x[i];
         data[o + 1] = quads.y[i];
@@ -189,11 +179,7 @@ export class GameRenderer {
       }
       gl.clear(gl.COLOR_BUFFER_BIT);
       gl.uniform2f(this.uViewport, layout.width, layout.height);
-      const slot = this.frameIndex;
-      this.frameIndex = (slot + 1) % 3;
-      gl.bindVertexArray(this.vaos[slot]);
-      gl.bindBuffer(gl.ARRAY_BUFFER, this.vbos[slot]);
-      gl.bufferSubData(gl.ARRAY_BUFFER, 0, data, 0, n * FLOATS_PER_QUAD);
+      gl.uniform4fv(this.uQuads, data, 0, n * 3);
       gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, n);
       return;
     }
@@ -221,7 +207,6 @@ export class GameRenderer {
 
       ctx.globalAlpha = a;
       if (uw === 0 && vh === 0) {
-        // Solid 1x1 texel sample
         ctx.drawImage(img, Math.floor(u), Math.floor(v), 1, 1, x, y, w, h);
         continue;
       }

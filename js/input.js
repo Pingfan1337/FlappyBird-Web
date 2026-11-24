@@ -62,15 +62,22 @@ export class InputController {
 
     // WebKit/iOS Safari reliably grants Web Audio user-activation on touchstart/touchend/mousedown/click,
     // whereas pointerdown alone may not unlock AudioContext on all iOS versions.
-    const unlock = () => this.actions.unlockAudio();
-    for (const ev of ['touchstart', 'touchend', 'mousedown', 'click']) {
+    // Remove these extra capture listeners once unlocked so zero overhead remains per tap.
+    const unlockEvents = ['touchstart', 'touchend', 'mousedown', 'click'];
+    const unlock = () => {
+      if (this.actions.unlockAudio()) {
+        for (const ev of unlockEvents) window.removeEventListener(ev, unlock, true);
+      }
+    };
+    for (const ev of unlockEvents) {
       window.addEventListener(ev, unlock, { capture: true, passive: true });
     }
 
     c.addEventListener('contextmenu', e => e.preventDefault());
 
+    // CSS touch-action: none handles gesture suppression on the compositor thread,
+    // allowing passive: true pointer listeners without blocking WebKit's touch-to-rAF pipeline.
     c.addEventListener('pointerdown', e => {
-      e.preventDefault();
       this.actions.unlockAudio();
       this.actions.onFirstInteract();
 
@@ -93,13 +100,12 @@ export class InputController {
 
       this._updateCoords(e.clientX, e.clientY);
       this.activePointerId = e.pointerId;
-      try { c.setPointerCapture(e.pointerId); } catch {}
       g.touchX = this._lx;
       g.touchY = this._ly;
       g.touching = true;
       g.touchLatch = true;
       g.touchBegin();
-    });
+    }, { passive: true });
 
     c.addEventListener('pointermove', e => {
       if (this.pointers.has(e.pointerId)) {
@@ -116,7 +122,7 @@ export class InputController {
         this._updateCoords(e.clientX, e.clientY);
         this._updateHoverCursor(this._lx, this._ly);
       }
-    });
+    }, { passive: true });
 
     const endPointer = e => {
       this.pointers.delete(e.pointerId);
@@ -138,9 +144,8 @@ export class InputController {
       }
     };
 
-    c.addEventListener('pointerup', endPointer);
-    c.addEventListener('pointercancel', endPointer);
-    c.addEventListener('lostpointercapture', endPointer);
+    window.addEventListener('pointerup', endPointer, { passive: true });
+    window.addEventListener('pointercancel', endPointer, { passive: true });
 
     window.addEventListener('keydown', e => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
