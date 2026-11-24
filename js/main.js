@@ -212,6 +212,7 @@ async function boot() {
       else { clock.reset(); pacing.reset(); statsStart = 0; audio.pause(); }
     } else if (!paused) {
       clock.reset(); game.dropHistory(); pacing.reset(); statsStart = 0;
+      audio.activate();
     }
   });
 

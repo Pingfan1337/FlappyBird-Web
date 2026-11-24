@@ -52,6 +52,13 @@ export class InputController {
     const c = this.canvas;
     const g = this.game;
 
+    // WebKit/iOS Safari reliably grants Web Audio user-activation on touchstart/touchend/mousedown/click,
+    // whereas pointerdown alone may not unlock AudioContext on all iOS versions.
+    const unlock = () => this.actions.unlockAudio();
+    for (const ev of ['touchstart', 'touchend', 'mousedown', 'click']) {
+      window.addEventListener(ev, unlock, { capture: true, passive: true });
+    }
+
     c.addEventListener('contextmenu', e => e.preventDefault());
 
     c.addEventListener('pointerdown', e => {
